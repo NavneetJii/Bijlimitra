@@ -1145,10 +1145,10 @@ footer{background:#061e18;color:#b8cbc4;padding:32px 5%;display:flex;justify-con
 <div id="authModal" style="position:fixed;inset:0;background:#061e1890;display:none;align-items:center;justify-content:center;z-index:40;padding:20px">
 <div style="width:min(430px,100%);background:#fff;border-radius:20px;padding:25px;box-shadow:0 25px 70px #0004">
 <h2 id="authTitle">Customer Login</h2>
-<div class="field"><label>EMAIL</label><input id="authEmail" type="email" placeholder="you@example.com"></div>
-<div class="field"><label>PASSWORD</label><input id="authPassword" type="password" placeholder="Password"></div>
+<div class="field"><label>MOBILE NUMBER</label><input id="authPhone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="10-digit mobile number"></div>
+<div class="field" id="signupEmailField" style="display:none"><label>EMAIL (OPTIONAL)</label><input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com"></div>
+<div class="field"><label>PASSWORD</label><input id="authPassword" type="password" autocomplete="current-password" placeholder="Password"></div>
 <div class="field" id="signupNameField" style="display:none"><label>FULL NAME</label><input id="authName" placeholder="Your name"></div>
-<div class="field" id="signupPhoneField" style="display:none"><label>MOBILE NUMBER</label><input id="authPhone" placeholder="10-digit mobile number"></div>
 <button id="authSubmit" class="btn btn-primary" style="width:100%" onclick="submitAuth()">Login</button>
 <button id="authSwitch" class="btn btn-light" style="width:100%;margin-top:10px" onclick="toggleAuthMode()">Create customer account</button>
 <button class="btn btn-light" style="width:100%;margin-top:10px" onclick="closeAuth()">Close</button>
@@ -1208,17 +1208,72 @@ function syncMobileLanguage(){
   document.getElementById('mobileLangHi')?.classList.toggle('active',window.BM_LANG==='hi');
 }
 function openAuth(){document.getElementById('authModal').style.display='flex'}
-function openCustomerSignup(){authMode='login';toggleAuthMode();document.getElementById('authModal').style.display='flex'}
-function closeAuth(){document.getElementById('authModal').style.display='none';document.getElementById('authStatus').textContent=''}
-function toggleAuthMode(){authMode=authMode==='login'?'signup':'login';const s=authMode==='signup';document.getElementById('authTitle').textContent=s?'Create Customer Account':'Customer Login';document.getElementById('authSubmit').textContent=s?'Create Account':'Login';document.getElementById('authSwitch').textContent=s?'I already have an account':'Create customer account';document.getElementById('signupNameField').style.display=s?'block':'none';document.getElementById('signupPhoneField').style.display=s?'block':'none'}
-async function ensurePublicProfile(user){const m=user.user_metadata||{};const {error}=await db.from('users').upsert({id:user.id,role:'CUSTOMER',full_name:m.full_name||'Customer',phone:m.phone||null,email:user.email,status:'ACTIVE',phone_verified:!!user.phone_confirmed_at},{onConflict:'id'});if(error)console.error(error)}
+function openCustomerSignup(){
+  authMode="signup";
+  applyAuthMode();
+  document.getElementById('authModal').style.display='flex';
+}
+function openAuth(){
+  authMode="login";
+  applyAuthMode();
+  document.getElementById('authModal').style.display='flex';
+}
+function closeAuth(){
+  document.getElementById('authModal').style.display='none';
+  document.getElementById('authStatus').textContent='';
+}
+function applyAuthMode(){
+  const signup=authMode==="signup";
+  document.getElementById('authTitle').textContent=signup?'Create Customer Account':'Customer Login';
+  document.getElementById('authSubmit').textContent=signup?'Create Account':'Login';
+  document.getElementById('authSwitch').textContent=signup?'I already have an account':'Create customer account';
+
+  const emailField=document.getElementById('signupEmailField');
+  const nameField=document.getElementById('signupNameField');
+  if(emailField) emailField.style.display=signup?'block':'none';
+  if(nameField) nameField.style.display=signup?'block':'none';
+
+  const phone=document.getElementById('authPhone');
+  if(phone){
+    phone.value='';
+    phone.placeholder='10-digit mobile number';
+  }
+}
+function toggleAuthMode(){
+  authMode=authMode==="login"?"signup":"login";
+  applyAuthMode();
+}
+async function ensurePublicProfile(user){
+  const m=user.user_metadata||{};
+  const {error}=await db.from('users').upsert({
+    id:user.id,
+    role:'CUSTOMER',
+    full_name:m.full_name||'Customer',
+    phone:m.phone||null,
+    email:user.email,
+    status:'ACTIVE',
+    phone_verified:!!user.phone_confirmed_at
+  },{onConflict:'id'});
+  if(error) console.error(error);
+}
+function normalizeIndianPhone(value){
+  const digits=String(value||'').replace(/\D/g,'');
+  if(digits.length===10) return digits;
+  if(digits.length===12 && digits.startsWith('91')) return digits.slice(2);
+  return '';
+}
 async function submitAuth(){
-  const email=document.getElementById("authEmail").value.trim();
+  const phone=normalizeIndianPhone(document.getElementById("authPhone").value);
   const password=document.getElementById("authPassword").value;
+  const email=(document.getElementById("authEmail")?.value||"").trim();
   const status=document.getElementById("authStatus");
 
-  if(!email || !password){
-    if(status) status.textContent="Enter email and password.";
+  if(!phone){
+    if(status) status.textContent="Enter a valid 10-digit mobile number.";
+    return;
+  }
+  if(!password){
+    if(status) status.textContent="Enter your password.";
     return;
   }
 
@@ -1227,15 +1282,32 @@ async function submitAuth(){
   try {
     if(authMode==="signup"){
       const fullName=document.getElementById("authName").value.trim();
-      const phone=document.getElementById("authPhone").value.trim();
 
-      if(!fullName || !/^[0-9]{10}$/.test(phone)){
-        if(status) status.textContent="Enter name and a valid 10-digit mobile number.";
+      if(!fullName){
+        if(status) status.textContent="Enter your name.";
+        return;
+      }
+
+      // Supabase email/password accounts require an email. If the user
+      // leaves email blank, use a non-contact internal address derived
+      // from the unique phone number. The user's real email remains optional.
+      const authEmail=email || `phone_${phone}@bijlimitra.local`;
+
+      // Check the public profile first so the phone is unique.
+      const {data:existing,error:lookupError}=await db
+        .from("users")
+        .select("id")
+        .eq("phone",phone)
+        .maybeSingle();
+
+      if(lookupError) throw lookupError;
+      if(existing){
+        if(status) status.textContent="This user exists. Please log in.";
         return;
       }
 
       const {data,error}=await db.auth.signUp({
-        email,
+        email:authEmail,
         password,
         options:{data:{full_name:fullName,phone}}
       });
@@ -1248,17 +1320,46 @@ async function submitAuth(){
         toast("Account created.");
       }
     } else {
-      const {data,error}=await db.auth.signInWithPassword({
-        email,
-        password
-      });
+      // First use phone as the Auth identifier (works when Supabase Phone
+      // provider is enabled). If the project still uses email/password
+      // identities, fall back to the email stored in public.users.
+      let signedIn=false;
+      let lastError=null;
 
-      if(error) throw error;
+      const phoneVariants=[phone,"+91"+phone];
+      for(const authPhone of phoneVariants){
+        const result=await db.auth.signInWithPassword({
+          phone:authPhone,
+          password
+        });
+        if(!result.error && result.data?.user){
+          signedIn=true;
+          break;
+        }
+        lastError=result.error;
+      }
 
-      if(data.user){
-        // Do NOT upsert public.users here.
-        // New users are handled by the database trigger.
-        // Existing users already have their profile.
+      if(!signedIn){
+        const {data:profile,error:profileError}=await db
+          .from("users")
+          .select("email")
+          .eq("phone",phone)
+          .maybeSingle();
+
+        if(profileError) throw profileError;
+        if(!profile?.email){
+          throw lastError || new Error("No account found for this mobile number.");
+        }
+
+        const result=await db.auth.signInWithPassword({
+          email:profile.email,
+          password
+        });
+        if(result.error) throw result.error;
+        signedIn=!!result.data?.user;
+      }
+
+      if(signedIn){
         closeAuth();
         await updateAuthUI();
         toast("Welcome back!");
@@ -1267,8 +1368,8 @@ async function submitAuth(){
   } catch(error) {
     console.error("Authentication error:", error);
 
-    const msg = String(error?.message || error || "");
-    const duplicateUser =
+    const msg=String(error?.message||error||"");
+    const duplicateUser=
       /already registered/i.test(msg) ||
       /already exists/i.test(msg) ||
       /duplicate key/i.test(msg) ||
@@ -1276,10 +1377,10 @@ async function submitAuth(){
       /phone.*unique/i.test(msg) ||
       /unique.*phone/i.test(msg);
 
-    if(status) {
-      status.textContent = duplicateUser
+    if(status){
+      status.textContent=duplicateUser
         ? "This user exists. Please log in or use another mobile number."
-        : (error.message || "Authentication failed.");
+        : (error.message || "Login failed. Check the mobile number and password.");
     }
   }
 }
