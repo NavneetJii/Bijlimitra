@@ -979,6 +979,23 @@ footer{padding-left:max(18px,calc((100% - 1240px)/2));padding-right:max(18px,cal
   .hero h1{font-size:42px!important}
   #frontServices{padding-top:46px!important}
 }
+/* v70: Mobile registration access — keep desktop navigation unchanged. */
+.mobile-menu-registration-actions{
+  grid-template-columns:1fr 1fr !important;
+  gap:10px !important;
+}
+.mobile-menu-registration-actions .btn{
+  width:100%;
+  min-height:46px;
+  white-space:normal;
+  line-height:1.2;
+}
+@media(max-width:480px){
+  .mobile-menu-registration-actions{
+    grid-template-columns:1fr !important;
+  }
+}
+
 @media(max-width:700px){
   .top span:last-child{display:none}
   .nav-actions #joinElectricianButton,.nav-actions #joinCustomerButton{display:none!important}
@@ -1031,7 +1048,9 @@ footer{padding-left:max(18px,calc((100% - 1240px)/2));padding-right:max(18px,cal
     <div class="mobile-menu-header"><strong>Bijli<span>Mitra</span></strong><button type="button" class="mobile-menu-close" onclick="closeMobileMenu()" aria-label="Close menu">✕</button></div>
     
     <button type="button" class="btn btn-light mobile-language" onclick="toggleLanguage();closeMobileMenu()">हिंदी</button>
-    <div class="mobile-menu-account">
+    <div class="mobile-menu-account mobile-menu-registration-actions">
+      <button id="mobileJoinElectricianButton" type="button" class="btn btn-light" onclick="closeMobileMenu();window.openElectrician();">Join as Electrician</button>
+      <button id="mobileJoinCustomerButton" type="button" class="btn btn-primary" onclick="closeMobileMenu();openCustomerSignup();">Join as Customer</button>
       <button id="mobileProfileButton" type="button" class="btn btn-light" onclick="openProfile();closeMobileMenu()">My Profile</button>
       <button id="mobileAuthButton" type="button" class="btn btn-primary" onclick="openAuth();closeMobileMenu()">Login</button>
     </div>
